@@ -130,19 +130,7 @@ body {
   padding: 0 4px;
 }
 
-.month-block { padding-bottom: 4px; }
-
-.month-title {
-  font-size: 15px;
-  font-weight: 700;
-  text-align: center;
-  padding: 14px 0 6px;
-  color: var(--gray-6);
-  position: sticky;
-  top: 0;
-  background: var(--gray-1);
-  z-index: 2;
-}
+.month-block { padding-bottom: 0; }
 
 .cal-week {
   display: grid;
@@ -156,11 +144,14 @@ body {
   justify-content: flex-start;
   padding: 3px 3px;
   min-height: 68px;
+  border-right: 1px solid rgba(200, 201, 204, .28);
+  border-bottom: 1px solid rgba(200, 201, 204, .28);
   cursor: pointer;
   position: relative;
   user-select: none;
   overflow: hidden;
 }
+.cal-cell:nth-child(7n) { border-right: none; }
 .cal-cell.period-active {
   background: #FFF0F0;
 }
@@ -189,19 +180,36 @@ body {
   flex-shrink: 0;
   position: relative;
 }
+.cal-cell.month-start::before {
+  content: '';
+  position: absolute;
+  left: 3px;
+  right: 3px;
+  top: 0;
+  height: 1px;
+  background: var(--gray-2);
+}
+.month-marker {
+  font-size: 10px;
+  color: var(--blue-dark);
+  background: var(--blue-light);
+  border-radius: 6px;
+  padding: 1px 4px;
+  margin-right: 4px;
+  font-weight: 500;
+}
 .cell-badge {
   position: relative;
   top: auto;
   right: auto;
   font-size: 8px;
   line-height: 1;
-  margin-left: 1px;
+  margin-left: 3px;
   font-weight: 600;
 }
-.cell-badge.holiday { color: #F5222D; }
+.cell-badge.holiday { color: #D86B6B; }
 .cell-badge.workday { color: var(--gray-4); }
 
-.cal-cell.other-month .cell-day { color: var(--gray-3); }
 .cal-cell.is-future .cell-day { color: var(--gray-3); }
 
 .cal-cell.is-today .cell-day {
@@ -232,8 +240,6 @@ body {
   max-width: 100%;
   color: white;
 }
-.cal-cell.other-month .cell-tags { opacity: .35; }
-
 /* ========== Record panel (shared by modal) ========== */
 .field-group {
   padding: 12px 0;
@@ -264,6 +270,13 @@ body {
 .star.empty { color: var(--gray-3); }
 
 .options-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.compound-group { margin-top: 10px; }
+.compound-group:first-child { margin-top: 0; }
+.compound-label {
+  font-size: 12px;
+  color: var(--gray-5);
+  margin-bottom: 6px;
+}
 .option-btn {
   padding: 6px 14px;
   border-radius: 20px;
@@ -609,13 +622,12 @@ body {
       </div>
       <div class="calendar-scroll" ref="calScroll" @scroll="onCalScroll">
         <div v-for="m in visibleMonths" :key="m.key" class="month-block" :data-label="m.label" :data-month="m.key">
-          <div class="month-title">{{ m.label }}</div>
           <div v-for="(week, wi) in m.weeks" :key="wi" class="cal-week">
             <div v-for="cell in week" :key="cell.dateStr"
                  class="cal-cell"
-                 :class="{ 'other-month': !cell.isCurrentMonth, 'is-today': cell.isToday, 'is-future': cell.isFuture && !cell.hasRecord, 'period-active': cell.periodActive, 'period-start': cell.periodStart, 'period-end': cell.periodEnd }"
+                 :class="{ 'other-month': !cell.isCurrentMonth, 'month-start': cell.isMonthStart, 'is-today': cell.isToday, 'is-future': cell.isFuture && !cell.hasRecord, 'period-active': cell.periodActive, 'period-start': cell.periodStart, 'period-end': cell.periodEnd }"
                  @click="openRecord(cell.dateStr)">
-              <span class="cell-day">{{ cell.day }}<span v-if="cell.badge" class="cell-badge" :class="cell.badge.type">{{ cell.badge.text }}</span></span>
+              <span class="cell-day"><span v-if="cell.isMonthStart" class="month-marker">{{ cell.monthLabel }}</span>{{ cell.day }}<span v-if="cell.badge" class="cell-badge" :class="cell.badge.type">{{ cell.badge.text }}</span></span>
               <div v-if="cell.tags.length" class="cell-tags">
                 <span v-for="(t, ti) in cell.tags" :key="ti" class="cell-tag" :style="{ background: t.color }">{{ t.text }}</span>
               </div>
@@ -649,7 +661,7 @@ body {
           </select>
           <input v-if="searchField && searchFieldType === 'rating'"
                  type="number" v-model.number="searchValue" min="1" max="5" style="width:50px;">
-          <select v-if="searchField && (searchFieldType === 'single_select' || searchFieldType === 'multi_select')"
+          <select v-if="searchField && (searchFieldType === 'single_select' || searchFieldType === 'multi_select' || searchFieldType === 'compound')"
                   v-model="searchValue">
             <option v-for="opt in searchFieldOptions" :key="opt" :value="opt">{{ opt }}</option>
           </select>
@@ -731,6 +743,7 @@ body {
           <div class="field-actions">
             <button class="move-btn" v-if="idx > 0" @click="moveField(idx, -1)">↑</button>
             <button class="move-btn" v-if="idx < allFields.length - 1" @click="moveField(idx, 1)">↓</button>
+            <button class="field-action-btn" v-if="fieldHasOptions(field)" @click="openOptionEditor(field)">编辑选项</button>
             <button class="field-action-btn" @click="toggleFieldActive(field)">
               {{ field.active !== false ? '停用' : '启用' }}
             </button>
@@ -797,6 +810,17 @@ body {
                   :class="{ selected: (editData[field.id] || []).includes(opt) }"
                   @click="toggleMulti(field.id, opt)">{{ opt }}</button>
         </div>
+        <div v-if="field.type === 'compound'">
+          <div v-for="group in field.groups" :key="group.id" class="compound-group">
+            <div class="compound-label">{{ group.label }}</div>
+            <div class="options-row">
+              <button v-for="opt in group.options" :key="opt"
+                      class="option-btn"
+                      :class="{ selected: isCompoundSelected(field.id, group, opt) }"
+                      @click="toggleCompound(field.id, group, opt)">{{ opt }}</button>
+            </div>
+          </div>
+        </div>
         <div v-if="field.type === 'period'" class="options-row">
           <button class="option-btn" :class="{ selected: editData[field.id] === 'start' }"
                   :style="editData[field.id] === 'start' ? { background: '#F5222D', borderColor: '#F5222D', color: 'white' } : {}"
@@ -811,6 +835,29 @@ body {
       </div>
 
       <button class="save-btn" @click="saveRecord">保存</button>
+    </div>
+  </div>
+
+  <!-- ===== Edit Options Modal ===== -->
+  <div v-if="editingField" class="modal-overlay" @click.self="editingField = null">
+    <div class="modal-content">
+      <div class="modal-title">编辑选项：{{ editingField.label }}</div>
+      <div class="add-field-form">
+        <div class="form-group" v-if="editingField.type === 'single_select' || editingField.type === 'multi_select'">
+          <label class="form-label">选项（逗号分隔）</label>
+          <input class="form-input" v-model="optionDraft.optionsStr">
+        </div>
+        <div v-if="editingField.type === 'compound'">
+          <div class="form-group" v-for="group in editingField.groups" :key="group.id">
+            <label class="form-label">{{ group.label }}（逗号分隔）</label>
+            <input class="form-input" v-model="optionDraft.groups[group.id]">
+          </div>
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-default" @click="editingField = null">取消</button>
+          <button class="btn btn-primary" @click="saveOptionEditor">保存</button>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -901,13 +948,43 @@ function getHolidayBadge(ds) {
   return null;
 }
 
+const CONFIG_VERSION = 5;
+const OLD_MOOD_OPTIONS = ['很好','还行','一般','不太好','很差'];
+const DEFAULT_MOOD_OPTIONS = ['愉快','满足','平静','放松','期待','兴奋','专注','疲惫','麻木','烦躁','焦虑','紧张','emo','低落','委屈','愤怒','孤独'];
 const DEFAULT_FIELDS = [
-  { id: 'sleep', label: '睡眠', type: 'rating', icon: '🌙', max: 5, order: 0, active: true, color: '#4A90D9' },
-  { id: 'mood', label: '情绪', type: 'single_select', icon: '😊', options: ['很好','还行','一般','不太好','很差'], order: 1, active: true, color: '#52C41A' },
+  { id: 'mood', label: '情绪', type: 'single_select', icon: '😊', options: DEFAULT_MOOD_OPTIONS, order: 1, active: true, color: '#52C41A' },
   { id: 'exercise', label: '运动', type: 'multi_select', icon: '🏃', options: ['跑步','散步','瑜伽','游泳','力量训练'], order: 2, active: true, color: '#FA8C16' },
-  { id: 'energy', label: '精力', type: 'rating', icon: '⚡', max: 5, order: 3, active: true, color: '#9254DE' },
+  { id: 'period', label: '经期', type: 'period', icon: '🩸', order: 4, active: true, color: '#F5222D' },
+  {
+    id: 'acne',
+    label: '痘痘',
+    type: 'compound',
+    icon: '🔴',
+    order: 5,
+    active: true,
+    color: '#EB2F96',
+    groups: [
+      { id: 'location', label: '位置', mode: 'multi', options: ['下颌线','脑门','鼻子','耳根'] },
+      { id: 'type', label: '类型', mode: 'multi', options: ['闷痘','明痘','油脂粒'] }
+    ]
+  },
+  {
+    id: 'headache',
+    label: '头疼',
+    type: 'compound',
+    icon: '🤕',
+    order: 6,
+    active: true,
+    color: '#722ED1',
+    groups: [
+      { id: 'time', label: '时间', mode: 'multi', options: ['起床','下午','晚上'] },
+      { id: 'severity', label: '程度', mode: 'single', options: ['微微','微','剧烈'] },
+      { id: 'symptoms', label: '症状', mode: 'multi', options: ['恶心','呕吐','畏光','无力'] }
+    ]
+  },
   { id: 'note', label: '备注', type: 'text', icon: '📝', order: 99, active: true, color: '#969799' }
 ];
+const FIELDS_ADDED_IN_V2 = ['period', 'acne', 'headache'];
 
 function dateStr(d) {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
@@ -922,6 +999,9 @@ function loadJSON(key, fb) {
   try { const r = localStorage.getItem(key); return r ? JSON.parse(r) : fb; } catch { return fb; }
 }
 function saveJSON(key, val) { localStorage.setItem(key, JSON.stringify(val)); }
+function sameList(a, b) {
+  return Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((v, i) => v === b[i]);
+}
 
 const { createApp, ref, computed, nextTick, onMounted } = Vue;
 
@@ -931,9 +1011,23 @@ createApp({
     const today = todayStr();
 
     // ========== Data layer ==========
-    const fieldConfig = ref(loadJSON('field_config', { version: 1, fields: [...DEFAULT_FIELDS] }));
+    const fieldConfig = ref(loadJSON('field_config', { version: CONFIG_VERSION, fields: JSON.parse(JSON.stringify(DEFAULT_FIELDS)) }));
     if (!fieldConfig.value.fields || fieldConfig.value.fields.length === 0) {
-      fieldConfig.value = { version: 1, fields: [...DEFAULT_FIELDS] };
+      fieldConfig.value = { version: CONFIG_VERSION, fields: JSON.parse(JSON.stringify(DEFAULT_FIELDS)) };
+    } else if ((fieldConfig.value.version || 1) < CONFIG_VERSION) {
+      const existingIds = new Set(fieldConfig.value.fields.map(f => f.id));
+      for (const field of DEFAULT_FIELDS.filter(f => FIELDS_ADDED_IN_V2.includes(f.id))) {
+        if (!existingIds.has(field.id)) fieldConfig.value.fields.push(JSON.parse(JSON.stringify(field)));
+      }
+      const moodField = fieldConfig.value.fields.find(f => f.id === 'mood');
+      if (moodField && sameList(moodField.options, OLD_MOOD_OPTIONS)) {
+        moodField.options = [...DEFAULT_MOOD_OPTIONS];
+      } else if (moodField && sameList(moodField.options, DEFAULT_MOOD_OPTIONS.filter(opt => opt !== 'emo'))) {
+        moodField.options = [...DEFAULT_MOOD_OPTIONS];
+      }
+      fieldConfig.value.fields = fieldConfig.value.fields.filter(f => !['sleep', 'energy'].includes(f.id));
+      fieldConfig.value.version = CONFIG_VERSION;
+      saveJSON('field_config', fieldConfig.value);
     }
     const records = ref(loadJSON('records', {}));
 
@@ -1001,7 +1095,7 @@ createApp({
         for (const f of activeFields.value) {
           if (f.type === 'period') continue;
           const v = rec.data[f.id];
-          if (v == null || v === '' || (Array.isArray(v) && v.length === 0)) continue;
+          if (isEmptyValue(v)) continue;
           const color = f.color || fieldColor(f);
           if (f.type === 'rating') {
             tags.push({ text: `${f.icon}${v}`, color });
@@ -1009,6 +1103,9 @@ createApp({
             tags.push({ text: v, color });
           } else if (f.type === 'multi_select') {
             tags.push({ text: v.join('/'), color });
+          } else if (f.type === 'compound') {
+            const text = compoundSummary(f, v);
+            if (text) tags.push({ text: text.length > 8 ? text.slice(0, 8) + '…' : text, color });
           } else if (f.type === 'text' && v) {
             tags.push({ text: v.length > 4 ? v.slice(0, 4) + '…' : v, color: '#969799' });
           }
@@ -1018,6 +1115,8 @@ createApp({
       return {
         dateStr: ds,
         day: dt.getDate(),
+        monthLabel: `${dt.getMonth() + 1}月`,
+        isMonthStart: isCurrentMonth && dt.getDate() === 1,
         isCurrentMonth,
         isToday: ds === today,
         isFuture: ds > today,
@@ -1034,6 +1133,24 @@ createApp({
     function fieldColor(f) {
       const idx = fieldConfig.value.fields.findIndex(ff => ff.id === f.id);
       return f.color || FIELD_COLORS[idx % FIELD_COLORS.length];
+    }
+
+    function isEmptyValue(v) {
+      if (v == null || v === '') return true;
+      if (Array.isArray(v)) return v.length === 0;
+      if (typeof v === 'object') return Object.values(v).every(isEmptyValue);
+      return false;
+    }
+
+    function compoundSummary(field, value) {
+      if (!value || typeof value !== 'object') return '';
+      const parts = [];
+      for (const group of field.groups || []) {
+        const groupValue = value[group.id];
+        if (Array.isArray(groupValue) && groupValue.length) parts.push(`${group.label}:${groupValue.join('/')}`);
+        else if (groupValue) parts.push(`${group.label}:${groupValue}`);
+      }
+      return parts.join(' ');
     }
 
     const periodFields = computed(() => activeFields.value.filter(f => f.type === 'period'));
@@ -1186,6 +1303,24 @@ createApp({
       editData.value[fieldId] = [...arr];
     }
 
+    function isCompoundSelected(fieldId, group, opt) {
+      const groupValue = (editData.value[fieldId] || {})[group.id];
+      return group.mode === 'single' ? groupValue === opt : Array.isArray(groupValue) && groupValue.includes(opt);
+    }
+
+    function toggleCompound(fieldId, group, opt) {
+      const value = { ...(editData.value[fieldId] || {}) };
+      if (group.mode === 'single') {
+        value[group.id] = value[group.id] === opt ? '' : opt;
+      } else {
+        const arr = Array.isArray(value[group.id]) ? [...value[group.id]] : [];
+        const idx = arr.indexOf(opt);
+        if (idx >= 0) arr.splice(idx, 1); else arr.push(opt);
+        value[group.id] = arr;
+      }
+      editData.value[fieldId] = value;
+    }
+
     function saveRecord() {
       const ds = selectedDate.value;
       if (!ds) return;
@@ -1205,10 +1340,14 @@ createApp({
       const tags = [];
       for (const f of activeFields.value) {
         const v = data[f.id];
-        if (v == null || v === '' || (Array.isArray(v) && v.length === 0)) continue;
+        if (isEmptyValue(v)) continue;
         if (f.type === 'rating') tags.push(`${f.icon}${v}`);
         else if (f.type === 'single_select') tags.push(`${f.icon}${v}`);
         else if (f.type === 'multi_select') tags.push(`${f.icon}${v.join('/')}`);
+        else if (f.type === 'compound') {
+          const text = compoundSummary(f, v);
+          if (text) tags.push(`${f.icon}${text.length > 18 ? text.slice(0, 18) + '…' : text}`);
+        }
         else if (f.type === 'text' && v) tags.push(`${f.icon}${v.length > 8 ? v.slice(0, 8) + '…' : v}`);
       }
       return tags;
@@ -1229,7 +1368,9 @@ createApp({
     });
     const searchFieldOptions = computed(() => {
       const f = activeFields.value.find(f => f.id === searchField.value);
-      return f ? (f.options || []) : [];
+      if (!f) return [];
+      if (f.type === 'compound') return [...new Set((f.groups || []).flatMap(g => g.options || []))];
+      return f.options || [];
     });
 
     function doSearch() {
@@ -1252,6 +1393,10 @@ createApp({
               match = val === searchValue.value;
             } else if (searchFieldType.value === 'multi_select') {
               match = Array.isArray(val) && val.includes(searchValue.value);
+            } else if (searchFieldType.value === 'compound') {
+              match = val && typeof val === 'object' && Object.values(val).some(groupValue =>
+                Array.isArray(groupValue) ? groupValue.includes(searchValue.value) : groupValue === searchValue.value
+              );
             } else if (searchFieldType.value === 'text') {
               const kw = searchKeyword.value.trim().toLowerCase();
               match = kw && typeof val === 'string' && val.toLowerCase().includes(kw);
@@ -1430,11 +1575,44 @@ createApp({
 
     // ========== Settings ==========
     const showAddField = ref(false);
+    const editingField = ref(null);
+    const optionDraft = ref({ optionsStr: '', groups: {} });
     const colorOptions = ['#4A90D9', '#52C41A', '#FA8C16', '#9254DE', '#F5222D', '#13C2C2', '#EB2F96', '#722ED1', '#1890FF', '#969799'];
     const newField = ref({ label: '', icon: '📌', type: 'rating', optionsStr: '', color: '#4A90D9' });
 
     function fieldTypeLabel(type) {
-      return { rating: '打分', single_select: '单选', multi_select: '多选', text: '文字', period: '区间' }[type] || type;
+      return { rating: '打分', single_select: '单选', multi_select: '多选', compound: '子维度', text: '文字', period: '区间' }[type] || type;
+    }
+
+    function fieldHasOptions(field) {
+      return field.type === 'single_select' || field.type === 'multi_select' || field.type === 'compound';
+    }
+
+    function openOptionEditor(field) {
+      editingField.value = field;
+      optionDraft.value = {
+        optionsStr: (field.options || []).join('，'),
+        groups: Object.fromEntries((field.groups || []).map(group => [group.id, (group.options || []).join('，')]))
+      };
+    }
+
+    function saveOptionEditor() {
+      const field = editingField.value;
+      if (!field) return;
+      if (field.type === 'single_select' || field.type === 'multi_select') {
+        const options = optionDraft.value.optionsStr.split(/[,，]/).map(s => s.trim()).filter(Boolean);
+        if (options.length === 0) { showToast('请填写至少一个选项'); return; }
+        field.options = options;
+      } else if (field.type === 'compound') {
+        for (const group of field.groups || []) {
+          const options = (optionDraft.value.groups[group.id] || '').split(/[,，]/).map(s => s.trim()).filter(Boolean);
+          if (options.length === 0) { showToast(`请填写${group.label}的选项`); return; }
+          group.options = options;
+        }
+      }
+      saveConfig();
+      editingField.value = null;
+      showToast('选项已保存');
     }
 
     function addField() {
@@ -1533,13 +1711,14 @@ createApp({
       records, allFields, activeFields, ratingFields,
       visibleMonths, calScroll, onCalScroll, scrollToToday,
       showRecordModal, selectedDate, selectedDateLabel, editData, isSelectedFuture, modalFields,
-      openRecord, closeRecord, toggleMulti, saveRecord,
+      openRecord, closeRecord, toggleMulti, isCompoundSelected, toggleCompound, saveRecord,
       searchFrom, searchTo, searchField, searchOp, searchValue, searchKeyword,
       searchResults, searchFieldType, searchFieldOptions,
       doSearch, formatDateShort, jumpToDate,
       reviewRange, chartRefs, reviewStats, setReviewRange,
       periodFields, periodCycles, periodAvg, periodRange, nextPeriodDate, periodChartRef,
-      showAddField, newField, fieldTypeLabel, fieldColor, colorOptions,
+      showAddField, editingField, optionDraft, newField, fieldTypeLabel, fieldHasOptions, fieldColor, colorOptions,
+      openOptionEditor, saveOptionEditor,
       addField, toggleFieldActive, deleteField, moveField,
       exportData, importInput, triggerImport, importData,
       toast, showToast
